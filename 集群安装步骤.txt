@@ -1,0 +1,527 @@
+	公司项目安装步骤
+		1、修改主机名称：Centos7系统
+			(1)vi /etc/hostname 或者 hostnamectl set-hostname 主机名称  					---修改主机名称
+			(2)reboot 																		---重启
+		2、搭建NTP服务器(时间同步服务)
+			1、服务器同步
+				(1)cat /etc/redhat-release 													---查看服务器、客户端操作系统版本
+				(2)rpm -qa | grep ntp														---查看服务器是否安装ntp，系统默认安装ntpdate
+				(3)yum install ntp ntpdate -y												---安装ntp ntpdate，其中ntpdate默认安装，可以只安装ntp
+				(4)rpm -qa | grep ntp														---查看是否已安装完成，与第2步对比
+				(5)systemctl status ntpd 或者 service ntpd status							---查看ntp服务器状态，两条命令效果一样
+				(6)vim /etc/ntp.conf														---修改配置文件，使该NTP服务器在不联网的情况下，使用本服务器的时间作为同步时间
+					(1)把如下四行代码注释掉
+						server 0.centos.pool.ntp.org iburst
+						server 1.centos.pool.ntp.org iburst
+						server 2.centos.pool.ntp.org iburst
+						server 3.centos.pool.ntp.org iburst
+					(2)新增
+						server 127.127.1.0 iburst
+						Fudge 127.127.1.0 stratum 10
+					(3)保存文件
+					(4)systemctl start ntpd													---启动ntp服务
+					(5)systemctl status ntpd 												---查看ntp状态
+					(6)ntpq -p																---查看是否同步
+					(7)systemctl enable ntpd												---设置开机启动
+					(8)firewall-cmd --permanent --add-port=123/udp							---设置防火墙，打开udp123端口
+					(9)firewall-cmd --reload												---重新加载防火墙
+			2、服务器与客户端同步
+				(1)vim /etc/ntp.conf														---修改配置文件，将刚刚搭建好的NTP服务器作为客户端上游时间服务器
+					#注释掉其他上游时间服务器
+						#server 0.centos.pool.ntp.org iburst
+						#server 1.centos.pool.ntp.org iburst
+						#server 2.centos.pool.ntp.org iburst
+						#server 3.centos.pool.ntp.org iburst
+					#配置上游时间服务器为本地的ntpd Server服务器
+						server 192.168.0.163
+					#配置允许上游时间服务器主动修改本机的时间
+						restrict 192.168.0.163 nomodify notrap noquery
+				(2)ntpdate -u 192.168.0.163													---与本地ntpd Server同步一下
+				(3)systemctl start ntpd														---启动ntp服务
+				(4)systemctl enable ntpd														---设置开机启动
+				(5)ntpq -p																	---查看状态
+				
+		
+		3、linux 免密登录
+			1、ssh-keygen -t rsa 															---生成秘钥
+			2、ssh-copy-id -i ~/.ssh/id_rsa.put 指定主机ip/host								---添加免密登录秘钥
+			(注： 主机可配置hosts 文件里面的服务器IP映射)
+			
+			
+		4、zookeeper集群配置
+			1、 tar zxvf zookeeper安装包													---解压zookeeper安装包
+			2、进入zookeeper conf目录
+			3、cp zoo_sample.cfg zoo.cfg													---复制zookeeper配置文件 并改名
+			4、vi zoo.cfg																	---修改配置文件
+			5、dataDir=数据目录																---zookeeper配置文件的参数配置 
+			6、 server.1=server1:2888:3888													---设置集群信息,此处的server可以用ip地址代替
+				server.2=server2:2888:3888
+				server.3=server3:2888:3888
+			7、 mkdir data/zookeeper														---再第5步创建的data目录里面创建一个zookeeper的Id目录
+			8、echo "1" > myid																---进入第七步创建的目录执行创建zookeeper的ID文件  "数字代表zookeeper的id"
+			
+		
+		5、Redis集群安装配置
+			1、tar -zxvf redis 3.0 tar包												---解压redis安装包
+			2、make && make install														---进入解压后的redis文件夹执行安装命令
+			3、主节点配置：
+				#集群需要修改为节点ip，不能为本地ip
+				bind 192.168.31.212
+				#新增配置
+				slave-priority 100
+				#集群需要关闭 改成no
+				protected-mode no
+				#集群主节点端口号
+				port 6379
+				#集群需要改成yes
+				daemonize yes
+				#制定log地址/名称
+				logfile ""
+				#指定data目录
+				dir /opt/redis-5.0.5/data/
+				#密码
+				# requirepass foobared
+				#集群需要改为yes
+				appendonly yes
+				appendfilename "appendonly.aof"
+				# appendfsync always
+				#集群必须开启
+				appendfsync everysec
+				# appendfsync no
+			4、主节点sentinel配置
+				#开启ip访问
+				bind 127.0.0.1 192.168.31.212
+				#集群改成no
+				protected-mode no
+				#集群端口号不变
+				port 26379
+				#开启访问
+				daemonize yes
+				#日志配置
+				logfile ""
+				#配置服务器主节点信息  -------》redis自动增加的配置
+				sentinel myid 2d7bdee51c2d3511d3b4fdeffee4e43567a0faca
+				#配置主节点超时毫秒
+				sentinel deny-scripts-reconfig yes
+				#配置主节点
+				sentinel monitor server1 192.168.31.212 6379 2
+				#配置集群超时毫秒
+				sentinel down-after-milliseconds server1 10000
+				#去掉注释
+				sentinel failover-timeout server1 60000
+			5、从节点配置：
+				#下面三个配置该文件没有，自己新建的
+				slaveof 主节点ip 主节点端口号
+				#从节点只读 yes 从节点读写 no
+				slave-read-only yes 
+				slave-priority 90
+				protected-mode no
+				port 6380
+				daemonize yes
+				pidfile "/var/run/redis_6380.pid"
+				dir "/crmtestXieHao/redis2/data"
+				appendonly yes
+				appendfsync everysec
+				#注释掉bind
+				#bind 127.0.0.1
+			6、从节点sentinel配置
+				protected-mode yes
+				port 26380
+				daemonize no
+				pidfile "/var/run/redis-sentinel.pid"
+				logfile ""
+				dir "/opt/redis/redis-5.0.5/tmp"
+				#sentinel monitor后面写主节点主机名和主节点ip、主节点主机的端口
+				sentinel myid e089ef942f886d91194e61ac65f21adc5001c8e7
+				sentinel deny-scripts-reconfig yes
+				#sentinel down-after-milliseconds master 30000
+				sentinel monitor master 192.168.31.212 6379 2
+				sentinel down-after-milliseconds master 10000
+				#sentinel failover-timeout master 180000
+				# sentinel notification-script master /var/redis/notify.sh
+				# sentinel client-reconfig-script master /var/redis/reconfig.sh
+				sentinel failover-timeout server1 60000
+				# SENTINEL rename-command master CONFIG GUESSME
+				# SENTINEL rename-command master CONFIG CONFIG
+				# Generated by CONFIG REWRITE
+				sentinel config-epoch master 0
+				sentinel leader-epoch master 0
+				sentinel known-replica master 192.168.31.84 6380
+				sentinel known-sentinel master 127.0.0.1 26379 2d7bdee51c2d3511d3b4fdeffee4e43567a0faca
+				sentinel current-epoch 0
+				
+				
+
+								
+			7、./redis-server ../redis.conf 											---依次启动redis1、redis2、redis3	
+			8、./redis-sentinel ../sentinel.conf										---依次启动每台redis的哨兵
+			9、./redis-cli -h 192.168.5.17 -p 6379 info Replication						---edis1、redis2、redis3状态查看命令
+			
+
+		6、scala安装
+			1、wget https://downloads.lightbend.com/scala/2.11.8/scala-2.11.8.tgz		---下载安装包
+			2、tar -xzvf scala-2.11.8.tgz												---解压安装包
+			3、export SCALA_HOME=/opt/scala/scala2.12									---配置环境变量
+			   export PATH=.:${JAVA_HOME}/bin:${SCALA_HOME}/bin:$PATH
+		7、Spark配置
+			1、tar -xvf spark-1.6.3-bin-hadoop2.4-without-hive.tgz						---解压安装包
+			2、export  SPARK_HOME=/opt/spark/spark1.6-hadoop2.4-hive					---配置环境变量
+			   export PATH=.:${JAVA_HOME}/bin:${SCALA_HOME}/bin:${SPARK_HOME}/bin:$PATH
+			3、修改slaves分布式文件 加入配置:--集群节点名称
+				slave1 
+				slave2
+			4、修改 spark-env.sh
+				export SCALA_HOME=/scala目录    
+				export JAVA_HOME=jdk目录
+				export HADOOP_HOME=hadoop目录    
+				export HADOOP_CONF_DIR=$HADOOP_HOME/etc/hadoop  
+				export SPARK_HOME=spark目录e
+				export SPARK_MASTER_IP=主节点ip    
+				export SPARK_EXECUTOR_MEMORY=4G  #指定spark运行时内存
+			
+		8、hive安装配置
+			1、安装mysql
+				1、rpm -qa | grep mysql 												---查看mysql 是否已经安装
+				2、rpm -e mysql															---普通删除命令
+				3、rpm -e --nodeps mysql												---强力删除命令
+				4、yum list mysql-server												---安装依赖
+				5、wget http://repo.mysql.com/mysql-community-release-el7-5.noarch.rpm	---通过wget命令下载该包
+					rpm -ivh mysql-community-release-el7-5.noarch.rpm 
+				6、yum install mysql-server												---下载成功之后，再输入命令安装
+				7、cd /usr/bin															---进入目录
+				8、sudo ./mysql_secure_installation										---root权限执行
+				9、Enter current password for root (enter for none):					---输入当前MySQL数据库的密码, 初始root无密码, 直接回车
+				10、Set root password? [Y/n] Y											---设置MySQL中root用户的密码
+					New password: 
+					Re-enter new password: 
+					Password updated successfully!
+					Reloading privilege tables..
+					... Success!
+				11、Remove anonymous users? [Y/n] Y										---删除匿名用户
+					... Success!
+				12、Disallow root login remotely? [Y/n] N								---是否不允许用户远程连接,选择N
+					... Success!
+				13、Remove test database and access to it? [Y/n] Y						---删除test数据库
+					Dropping test database...
+					... Success!
+					Removing privileges on test database...
+					... Success!
+				14、Reload privilege tables now? [Y/n] Y								---重装
+					... Success!
+			2、安装hive
+				1、cp hive-env.sh.template  hive-env.sh									---复制hive-env文件
+				2、vim hive-env.sh														---修改 hive-env.sh
+					JAVA_HOME=/app/java/jdk1.8.0_141
+					HADOOP_HOME=/app/hadoop/hadoop-2.7.3
+					HIVE_HOME=/app/hive/apache-hive-2.1.1-bin
+					export HIVE_CONF_DIR=$HIVE_HOME/conf
+					#export HIVE_AUX_JARS_PATH=$SPARK_HOME/lib/spark-assembly-1.6.0-hadoop2.6.0.jar
+					export CLASSPATH=$CLASSPATH:$JAVA_HOME/lib:$HADOOP_HOME/lib:$HIVE_HOME/lib
+					#export HADOOP_OPTS="-Dorg.xerial.snappy.tempdir=/tmp -Dorg.xerial.snappy.lib.name=libsnappyjava.jnilib $HADOOP_OPTS"
+				3、cp hive-default.xml.template hive-site.xml							---编辑hive-site.xml (里面配置项非常多，清掉configuration里的所有属性。 )
+					<configuration>
+					 <property>
+						<name>javax.jdo.option.ConnectionURL</name>
+						<value>jdbc:mysql://master:3306/hive?createDatabaseIfNotExist=true</value>
+						<description>JDBC connect string for a JDBC metastore</description>
+					</property>
+					<property>
+						<name>javax.jdo.option.ConnectionDriverName</name>
+						<value>com.mysql.jdbc.Driver</value>
+						<description>Driver class name for a JDBC metastore</description>
+					</property>
+					<property>
+						<name>javax.jdo.option.ConnectionUserName</name>
+						<value>root</value>
+						<description>username to use against metastore database</description>
+					</property>
+					<property>
+						<name>javax.jdo.option.ConnectionPassword</name>
+						<value>123</value>
+						<description>password to use against metastore database</description>
+					</property>
+					<property>
+						<name>datanucleus.autoCreateSchema</name>
+						<value>true</value>
+					</property>
+					<property>
+						<name>datanucleus.autoCreateTables</name>
+						<value>true</value>
+					</property>
+					<property>
+						<name>datanucleus.autoCreateColumns</name>
+						<value>true</value>
+					</property>
+					<!-- 设置 hive仓库的HDFS上的位置 -->
+					<property>
+						<name>hive.metastore.warehouse.dir</name>
+						<value>/hive</value>
+						<description>location of default database for the warehouse</description>
+					</property>
+					<!--资源临时文件存放位置 -->
+					<property>
+						<name>hive.downloaded.resources.dir</name>
+						<value>/app/hive/apache-hive-2.1.1-bin/tmp/resources</value>
+						<description>Temporary local directory for added resources in the remote file system.</description>
+					 </property>
+					 <!-- Hive在0.9版本之前需要设置hive.exec.dynamic.partition为true, Hive在0.9版本之后默认为true -->
+					<property>
+						<name>hive.exec.dynamic.partition</name>
+						<value>true</value>
+					 </property>
+					<property>
+						<name>hive.exec.dynamic.partition.mode</name>
+						<value>nonstrict</value>
+					 </property>
+					<!-- 修改日志位置 -->
+					<property>
+						<name>hive.exec.local.scratchdir</name>
+						<value>/app/hive/apache-hive-2.1.1-bin/tmp/HiveJobsLog</value>
+						<description>Local scratch space for Hive jobs</description>
+					</property>
+					<property>
+						<name>hive.downloaded.resources.dir</name>
+						<value>/app/hive/apache-hive-2.1.1-bin/tmp/ResourcesLog</value>
+						<description>Temporary local directory for added resources in the remote file system.</description>
+					</property>
+					<property>
+						<name>hive.querylog.location</name>
+						<value>/app/hive/apache-hive-2.1.1-bin/tmp/HiveRunLog</value>
+						<description>Location of Hive run time structured log file</description>
+					</property>
+					<property>
+						<name>hive.server2.logging.operation.log.location</name>
+						<value>/app/hive/apache-hive-2.1.1-bin/tmp/OpertitionLog</value>
+						<description>Top level directory where operation tmp are stored if logging functionality is enabled</description>
+					</property>
+					<property>
+						<name>datanucleus.schema.autoCreateAll</name>
+						<value>true</value>
+					</property>
+					<!-- 配置HWI接口 -->
+					<property>  
+						<name>hive.hwi.war.file</name>  
+						<value>/app/bin/apache-hive-2.2.1-bin/lib/hive-hwi-2.1.1.jar</value>  
+						<description>This sets the path to the HWI war file, relative to ${HIVE_HOME}. </description>  
+					</property>  
+					<property>  
+						<name>hive.hwi.listen.host</name>  
+						<value>master</value>  
+						<description>This is the host address the Hive Web Interface will listen on</description>  
+					</property>  
+					<property>  
+						<name>hive.hwi.listen.port</name>  
+						<value>9999</value>  
+						<description>This is the port the Hive Web Interface will listen on</description>  
+					</property>
+					<!-- Hiveserver2已经不再需要hive.metastore.local这个配置项了(hive.metastore.uris为空，则表示是metastore在本地，否则就是远程)远程的话直接配置hive.metastore.uris即可 -->
+					<!-- property>
+						<name>hive.metastore.uris</name>
+						<value>thrift://master:9083</value>
+						<description>Thrift URI for the remote metastore. Used by metastore client to connect to remote metastore.</description>
+					</property --> 
+					<property>
+						<name>hive.server2.thrift.bind.host</name>
+						<value>master</value>
+					</property>
+					<property>
+						<name>hive.server2.thrift.port</name>
+						<value>10000</value>
+					</property>
+					<property>
+						<name>hive.server2.thrift.http.port</name>
+						<value>10001</value>
+					</property>
+					<property>
+						<name>hive.server2.thrift.http.path</name>
+						<value>cliservice</value>
+					</property>
+					<!-- HiveServer2的WEB UI -->
+					<property>
+						<name>hive.server2.webui.host</name>
+						<value>master</value>
+					</property>
+					<property>
+						<name>hive.server2.webui.port</name>
+						<value>10002</value>
+					</property>
+					<property>
+						<name>hive.scratch.dir.permission</name>
+						<value>755</value>
+					</property>
+					<!-- 下面hive.aux.jars.path这个属性里面你这个jar包地址如果是本地的记住前面要加file://不然找不到, 而且会报org.apache.hadoop.hive.contrib.serde2.RegexSerDe错误 
+					<property>
+						<name>hive.aux.jars.path</name>
+						<value>file:///app/spark/lib/spark-assembly-1.6.0-hadoop2.6.0.jar</value>
+					</property>
+					-->
+					<property>
+						<name>hive.server2.enable.doAs</name>
+						<value>false</value>
+					</property>   
+					<!-- property>
+						<name>hive.server2.authentication</name>
+						<value>NOSASL</value>
+					</property -->
+					<property>
+						<name>hive.auto.convert.join</name>
+						<value>false</value>
+					</property>
+					<property>
+						<name>spark.dynamicAllocation.enabled</name>
+						<value>true</value>
+						<description>动态分配资源</description>  
+					</property>
+					<!-- 使用Hive on spark时,若不设置下列该配置会出现内存溢出异常 -->
+					<property>
+						<name>spark.driver.extraJavaOptions</name>
+						<value>-XX:PermSize=128M -XX:MaxPermSize=512M</value>
+					</property>
+					</configuration>
+				4、cp hive-log4j2.properties.template hive-log4j.properties				--- 修改hive-log4j.properties文件
+						#将hive.log日志的位置改为${HIVE_HOME}/tmp目录
+						hive.log.dir=/app/hive/apache-hive-2.1.1-bin/tmp
+						
+				5、vi hive-config.sh													---配置hive-config.sh文件
+					## 增加以下三行
+					export JAVA_HOME=/app/java/jdk1.8.0_141
+					export HIVE_HOME=/app/hive/apache-hive-2.1.1-bin
+					export HADOOP_HOME=/app/hadoop/hadoop-2.7.3
+					## 修改下列该行
+					HIVE_CONF_DIR=$HIVE_HOME/conf
+				6、cp mysql-connector-java-5.1.19-bin.jar $HIVE_HOME/lib/				---将JDBC的jar包放入$HIVE_HOME/lib目录下
+				7、cp jline-2.12.jar /hadoop-2.7.3/share/hadoop/yarn/lib/				---将HIVE_HOME/lib目录下的jline-2.12.jar包，拷贝到HADOOP_HOME/share/hadoop/yarn/lib目录下，并删除HADOOP_HOME/share/hadoop/yarn/lib目录下旧版本的jline包
+				8、cp  $JAVA_HOME/lib/tools.jar  ${HIVE_HOME}/lib						---复制JAVA_HOME目录下的tools.jar到HIVE_HOME/lib下
+				9、schematool -dbType mysql -initSchema									---在hive/bin目录下运行schematool -dbType mysql -initSchema ## MySQL作为元数据库
+					which: no hbase in (/usr/local/bin:/bin:/usr/bin:/usr/local/sbin:/usr/sbin:/sbin:/home/hadoop/bin:/app/java/jdk1.8.0_141/bin:/app/hadoop/hadoop-2.7.3/bin:/app/hadoop/hadoop-2.7.3/sbin:/app/scala/scala-2.11.8/bin:/app/spark/spark-2.1.1/bin:/app/spark/spark-2.1.1/sbin:/app/zookeeper/zookeeper-3.4.6/bin:/app/kafka/kafka_2.10-0.9.0.0/bin:/app/hive/apache-hive-2.1.1-bin/bin)
+					SLF4J: Class path contains multiple SLF4J bindings.
+					SLF4J: Found binding in [jar:file:/app/hive/apache-hive-2.1.1-bin/lib/log4j-slf4j-impl-2.4.1.jar!/org/slf4j/impl/StaticLoggerBinder.class]
+					SLF4J: Found binding in [jar:file:/app/hadoop/hadoop-2.7.3/share/hadoop/common/lib/slf4j-log4j12-1.7.10.jar!/org/slf4j/impl/StaticLoggerBinder.class]
+					SLF4J: See http://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+					SLF4J: Actual binding is of type [org.apache.logging.slf4j.Log4jLoggerFactory]
+					Metastore connection URL:    jdbc:mysql://master:3306/hive?createDatabaseIfNotExist=true
+					Metastore Connection Driver :    com.mysql.jdbc.Driver
+					Metastore connection User:   root
+					Starting metastore schema initialization to 2.1.0
+					Initialization script hive-schema-2.1.0.mysql.sql
+					Initialization script completed
+					schemaTool completed												---到此结果，证明hive成功安装
+				10、 ./hive --service metastore											---进hive bin   执行Hive前, 须先启动metastore服务, 否则会报错
+				11、start-all.sh 														---进hadoop目录执行 启动hadoop集群，因为hive是依赖于hdfs的，不启动hadoop会报如下错误
+				12、测试
+					hive> show databases;
+					OK
+					default
+					Time taken: 2.529 seconds, Fetched: 1 row(s)
+					hive> show tables;
+					OK
+					Time taken: 0.225 seconds
+					hive> create table employee (id bigint,name string) row format delimited fields terminated by '\t';
+					OK
+					Time taken: 2.264 seconds
+					hive> select * from employee;
+					OK
+					Time taken: 3.812 seconds
+				13、至此hive搭建完成。
+		9、hbase安装
+			1、下载 http://archive.apache.org/dist/hbase/2.1.1/
+			2、需要依赖zookeeper
+			3、解压hbase安装包
+			4、配置hbase环境变量
+			5、vim hbase-env.sh															---伪分布式模式 修改配置文件
+				export JAVA_HOME=/usr/local/jdk1.8.0_172
+				export HBASE_PID_DIR=/usr/local/big_data/hbase/hbase/pids
+				#  为true表示使用自带的zookeeper
+				export HBASE_MANAGES_ZK=false
+			6、vim conf/hbase-site.xml													---修改配置文件
+				<!--指定hbase在hdfs上存储的路径 -->
+				<property>
+			    ����   <name>hbase.rootdir</name>
+			        <value>hdfs://主机ip: hdfs端口号/hbase</value>
+			    </property>
+
+			    <!--指定hbase是分布式的 -->
+			    <property>
+			        <name>hbase.cluster.distributed</name>
+			        <value>true</value>
+			    </property>
+
+			    <!-- 指定zk地址，多个用","分割-->
+			    <property>
+			        <name>hbase.zookeeper.quorum</name>
+			        <value>ip:2188</value>
+			    </property>
+
+			    <property>
+			        <name>hbase.master.info.port</name>
+			        <value>16011</value>
+			    </property>
+			    <property>
+			        <name>dfs.replication</name>
+			        <value>1</value>
+			    </property>
+			    <property>
+			        <name>hbase.unsafe.stream.capability.enforce</name>
+			        <value>false</value>
+			    </property>
+
+			    <property>
+			        <name>hbase.tmp.dir</name>
+			        <value>/usr/local/big_data/hbase/hbase/tmp</value>
+			    </property>
+				<property>
+					<name>hbase.unsafe.stream.capability.enforce</name>
+					<value>false</value>
+				</property>
+			7、vim regionservers  从节点的列表(此处不用)
+			8、vim backup-masters  standby 和master节点。如果没有自己创建。在文件中放入备份主节点的列表(以后一个主机名)(此处不用)
+			9、复制 hbase-2.1.3/lib/client-facing-thirdparty/htrace-core-3.1.0-incubating.jar到 hbase-2.1.3/lib目录下
+			10、启动:(hbase的安装没有初始化操作) 启动之前确保hadoop 和zk启动正常
+				start-hbase.sh
+				关闭
+				stop-hbase.sh
+			11、验证
+				1、 使用 jps查看进程HMaster 是否正常
+		              如果按照要求，某个节点缺少了某个进程，   使用以下命令启动:
+		              hbase-daemon.sh start master                --  HMaster
+		              hbase-daemon.sh start regionserver       	  -- HRegionServer
+				2、查询web ui
+						http://ip:16011/master-status
+		10、flink安装
+			1、下载安装包
+			2、解压安装包
+			3、 vi conf/flink-conf.yaml 						  ---修改flink配置文件
+				# 设置jobmanager.rpc.address 配置项为该节点的IP 或者主机名  flink配置文件 端口号与“：” 直接必须有空格 不然无法读取到值
+				jobmanager.rpc.address: 10.108.4.202
+			4、vi conf/slaves									  ---修改子节点配置文件
+				10.108.4.203
+				10.108.4.204
+			5、bin/start-cluster.sh &							  ---启动flink
+			6、bin/stop-cluster.sh								  ---关闭flink
+			
+			
+	运用中遇到问题：
+		1、bin/hadoop dfsadmin -safemode leave  手动解除hadoop 安全模式
+		2、Permission denied: user=dr.who, access=READ_EXECUTE, inode="/tmp":root:supergroup:drwxrwx--- 异常
+			hdfs dfs -chmod -R 755 文件夹路径   修改一下权限                  
+			
+
+							
+				
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+			
+			
