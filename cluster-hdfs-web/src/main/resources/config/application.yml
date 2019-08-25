@@ -1,0 +1,10 @@
+spring:
+  profiles:
+    active: dev
+  freemarker:
+    suffix: .ftl
+    templateEncoding: UTF-8
+server:
+  port: 8501
+  session:
+    timeout: 43100 # 单位分钟 ,30天

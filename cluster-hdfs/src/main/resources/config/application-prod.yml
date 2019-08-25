@@ -1,0 +1,22 @@
+﻿spring: 
+  hadoop: 
+    fs-uri: hdfs://192.168.1.6:8020 #hdfs://192.168.31.212:8020 #你的hdfs的路径
+    config: 
+      user: root
+      fs:
+        hdfs:
+          impl:
+            disable:
+              cache: true 
+        defaultFS: hdfs://192.168.1.6:8020 #你的hdfs的路径
+    fsshell: 
+      enabled: true #开启fsshell支持
+dubbo: 
+  application:            #应用配置，用于配置当前应用信息，不管该应用是提供者还是消费者。
+    name: CallFileSystemServiceImplProvider
+  registry:                 #注册中心配置，用于配置连接注册中心相关信息。
+    address: zookeeper://192.168.1.6:2181
+  protocol:     #协议配置，用于配置提供服务的协议信息，协议由提供方指定，消费方被动接受。
+    name: dubbo
+    port: 20880
+  #scan: com.cluster.Service.interfaces.callFileService.impl  #服务暴露与发现消费所在的package 
